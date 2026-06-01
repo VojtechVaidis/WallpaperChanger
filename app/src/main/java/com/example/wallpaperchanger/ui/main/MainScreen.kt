@@ -37,6 +37,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.wallpaperchanger.*
@@ -50,6 +53,25 @@ fun MainScreen(
     val context = LocalContext.current
     val prefs = remember { PreferencesManager(context) }
     val albumRepo = remember { AlbumRepository(context) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isBatteryOptimized by remember {
+        val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        mutableStateOf(!pm.isIgnoringBatteryOptimizations(context.packageName))
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+                isBatteryOptimized = !pm.isIgnoringBatteryOptimizations(context.packageName)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     var hasPermission by remember {
         mutableStateOf(
@@ -188,6 +210,27 @@ fun MainScreen(
                     }
                 }
             )
+
+            if (isBatteryOptimized) {
+                Spacer(modifier = Modifier.height(16.dp))
+                BatteryOptimizationCard(
+                    onRequestExemption = {
+                        try {
+                            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            try {
+                                val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                context.startActivity(intent)
+                            } catch (ex: Exception) {
+                                android.util.Log.e("MainScreen", "Failed to launch battery settings", ex)
+                            }
+                        }
+                    }
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -1189,6 +1232,63 @@ private fun WallpaperScalingSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BatteryOptimizationCard(onRequestExemption: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onRequestExemption() },
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF3E2D22)
+        ),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFA726))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFFFA726).copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = Color(0xFFFFA726),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Background Restrictions Active",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = Color.White
+                )
+                Text(
+                    text = "App may freeze in background. Tap to set Battery usage to Unrestricted.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SubtleText
+                )
+            }
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = SubtleText,
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 }
