@@ -12,14 +12,12 @@ import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.database.ContentObserver
 import android.graphics.Bitmap
-import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
-import android.view.Display
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,7 +25,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Foreground service that listens for ACTION_SCREEN_ON broadcasts and display state changes,
+ * Foreground service that listens for screen wake/sleep and dreaming/AOD events,
  * and changes the wallpaper to a pre-cached random image from the selected album/photos.
  *
  * Preloads the next wallpaper in the background to react instantly to screen wake.
@@ -54,7 +52,7 @@ class WallpaperChangerService : Service() {
     private lateinit var albumRepo: AlbumRepository
     private lateinit var wallpaperHelper: WallpaperHelper
 
-    private var screenOnReceiver: BroadcastReceiver? = null
+    private var screenEventReceiver: BroadcastReceiver? = null
     private var mediaObserver: ContentObserver? = null
 
     // Background thread scope
@@ -66,9 +64,6 @@ class WallpaperChangerService : Service() {
     private var cachedNextUri: Uri? = null
     private var preloadJob: kotlinx.coroutines.Job? = null
 
-    // Display Listener for AOD support
-    private var displayListener: DisplayManager.DisplayListener? = null
-    private var lastDisplayState: Int = Display.STATE_UNKNOWN
     private var lastChangeTime: Long = 0
 
     // Preference Listener to invalidate cache when settings change
@@ -96,8 +91,7 @@ class WallpaperChangerService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, buildNotification())
         }
-        registerScreenOnReceiver()
-        registerDisplayListener()
+        registerScreenEventReceiver()
         registerPrefsListener()
         refreshImageCache()
         registerMediaObserver()
@@ -116,8 +110,7 @@ class WallpaperChangerService : Service() {
         Log.d(TAG, "Service destroyed")
         serviceScope.cancel()
         
-        unregisterScreenOnReceiver()
-        unregisterDisplayListener()
+        unregisterScreenEventReceiver()
         unregisterPrefsListener()
         unregisterMediaObserver()
         
@@ -126,73 +119,46 @@ class WallpaperChangerService : Service() {
         cachedNextUri = null
     }
 
-    // --- Screen On Receiver ---
+    // --- Screen / Dreaming Broadcast Receiver ---
 
-    private fun registerScreenOnReceiver() {
-        screenOnReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == Intent.ACTION_SCREEN_ON) {
-                    Log.i(TAG, "Screen ON broadcast received — changing wallpaper")
-                    changeWallpaper()
-                }
-            }
-        }
-        val filter = IntentFilter(Intent.ACTION_SCREEN_ON)
-        registerReceiver(screenOnReceiver, filter)
-        Log.i(TAG, "Screen ON receiver registered")
-    }
-
-    private fun unregisterScreenOnReceiver() {
-        screenOnReceiver?.let {
-            try {
-                unregisterReceiver(it)
-            } catch (e: Exception) {
-                Log.w(TAG, "Error unregistering screen receiver", e)
-            }
-        }
-        screenOnReceiver = null
-    }
-
-    // --- Display Listener (Always On Display support) ---
-
-    private fun registerDisplayListener() {
-        val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        displayListener = object : DisplayManager.DisplayListener {
-            override fun onDisplayAdded(displayId: Int) {}
-            override fun onDisplayRemoved(displayId: Int) {}
-            override fun onDisplayChanged(displayId: Int) {
-                if (displayId == Display.DEFAULT_DISPLAY) {
-                    val display = displayManager.getDisplay(displayId)
-                    if (display != null) {
-                        val currentState = display.state
-                        Log.d(TAG, "Display state changed: $currentState (last: $lastDisplayState)")
-                        if (currentState == Display.STATE_ON && 
-                            lastDisplayState != Display.STATE_ON &&
-                            lastDisplayState != Display.STATE_UNKNOWN) {
-                            Log.i(TAG, "Display transition to STATE_ON detected — changing wallpaper")
-                            changeWallpaper()
-                        }
-                        lastDisplayState = currentState
+    private fun registerScreenEventReceiver() {
+        screenEventReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.action) {
+                    Intent.ACTION_SCREEN_ON,
+                    Intent.ACTION_DREAMING_STOPPED,
+                    Intent.ACTION_USER_PRESENT -> {
+                        Log.i(TAG, "Screen wake event (${intent.action}) received — changing wallpaper")
+                        changeWallpaper()
+                    }
+                    Intent.ACTION_SCREEN_OFF,
+                    Intent.ACTION_DREAMING_STARTED -> {
+                        Log.d(TAG, "Screen sleep/dream/AOD event (${intent.action}) received — preloading next wallpaper")
+                        preloadNextWallpaper()
                     }
                 }
             }
         }
-
-        val defaultDisplay = displayManager.getDisplay(Display.DEFAULT_DISPLAY)
-        if (defaultDisplay != null) {
-            lastDisplayState = defaultDisplay.state
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_DREAMING_STARTED)
+            addAction(Intent.ACTION_DREAMING_STOPPED)
+            addAction(Intent.ACTION_USER_PRESENT)
         }
-
-        displayManager.registerDisplayListener(displayListener, null)
-        Log.i(TAG, "DisplayManager listener registered (initial state: $lastDisplayState)")
+        registerReceiver(screenEventReceiver, filter)
+        Log.i(TAG, "Screen event receiver registered")
     }
 
-    private fun unregisterDisplayListener() {
-        displayListener?.let {
-            val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-            displayManager.unregisterDisplayListener(it)
+    private fun unregisterScreenEventReceiver() {
+        screenEventReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error unregistering screen event receiver", e)
+            }
         }
-        displayListener = null
+        screenEventReceiver = null
     }
 
     // --- Preference Listener ---
