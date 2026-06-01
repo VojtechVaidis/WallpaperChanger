@@ -60,13 +60,11 @@ class WallpaperChangerService : Service() {
     // Background thread scope
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
-    // Memory cache for next wallpaper
     @Volatile
     private var cachedNextBitmap: Bitmap? = null
     @Volatile
     private var cachedNextUri: Uri? = null
-    @Volatile
-    private var isPreloading = false
+    private var preloadJob: kotlinx.coroutines.Job? = null
 
     // Display Listener for AOD support
     private var displayListener: DisplayManager.DisplayListener? = null
@@ -257,15 +255,12 @@ class WallpaperChangerService : Service() {
     // --- Preloading Logic ---
 
     private fun preloadNextWallpaper() {
-        if (isPreloading) return
+        // Cancel any active preloading task to ensure new settings apply immediately
+        preloadJob?.cancel()
 
-        serviceScope.launch {
-            isPreloading = true
+        preloadJob = serviceScope.launch {
             try {
-                if (!prefs.hasAlbumSelected) {
-                    isPreloading = false
-                    return@launch
-                }
+                if (!prefs.hasAlbumSelected) return@launch
 
                 val imageUris: List<Uri> = when (prefs.selectionMode) {
                     PreferencesManager.MODE_WHOLE_ALBUM -> {
@@ -279,26 +274,25 @@ class WallpaperChangerService : Service() {
                     else -> emptyList()
                 }
 
-                if (imageUris.isEmpty()) {
-                    isPreloading = false
-                    return@launch
-                }
+                if (imageUris.isEmpty()) return@launch
 
                 val randomUri = imageUris.random()
                 Log.d(TAG, "Preloading next wallpaper from: $randomUri")
 
-                val bitmap = wallpaperHelper.processWallpaperBitmap(randomUri)
-                if (bitmap != null) {
-                    val oldBitmap = cachedNextBitmap
-                    cachedNextBitmap = bitmap
-                    cachedNextUri = randomUri
-                    oldBitmap?.recycle()
-                    Log.d(TAG, "Successfully preloaded wallpaper bitmap")
+                // Wrap in a timeout to prevent hanging indefinitely on slow cloud streams
+                kotlinx.coroutines.withTimeoutOrNull(6000) {
+                    val bitmap = wallpaperHelper.processWallpaperBitmap(randomUri)
+                    if (bitmap != null) {
+                        val oldBitmap = cachedNextBitmap
+                        cachedNextBitmap = bitmap
+                        cachedNextUri = randomUri
+                        oldBitmap?.recycle()
+                        Log.d(TAG, "Successfully preloaded wallpaper bitmap")
+                    }
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error preloading next wallpaper", e)
-            } finally {
-                isPreloading = false
             }
         }
     }
