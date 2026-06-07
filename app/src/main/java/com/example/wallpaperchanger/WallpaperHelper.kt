@@ -55,10 +55,10 @@ class WallpaperHelper(private val context: Context) {
 
             // Get user's scaling mode preference
             val scalingMode = PreferencesManager(context).scalingMode
-            val processedBitmap = if (scalingMode == PreferencesManager.SCALING_FIT) {
-                createFitWallpaper(bitmap, screenWidth, screenHeight)
-            } else {
-                cropAndScaleToScreen(bitmap, screenWidth, screenHeight)
+            val processedBitmap = when (scalingMode) {
+                PreferencesManager.SCALING_FIT -> createFitWallpaper(bitmap, screenWidth, screenHeight)
+                PreferencesManager.SCALING_CUSTOM -> createCustomWallpaper(bitmap, screenWidth, screenHeight)
+                else -> cropAndScaleToScreen(bitmap, screenWidth, screenHeight)
             }
 
             if (processedBitmap != bitmap) {
@@ -256,5 +256,58 @@ class WallpaperHelper(private val context: Context) {
         }
 
         return inSampleSize
+    }
+
+    /**
+     * Scale and draw the photo inside a custom specified region coordinates (obtained from preferences),
+     * and fill the rest of the wallpaper canvas with solid white color.
+     *
+     * Why: The user requested a feature to position and resize the wallpaper inside custom boxes
+     * (separately for portrait and landscape screen configurations) and fill the margins with white background.
+     */
+    private fun createCustomWallpaper(bitmap: Bitmap, screenWidth: Int, screenHeight: Int): Bitmap {
+        val result = Bitmap.createBitmap(screenWidth, screenHeight, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(result)
+
+        // Fill background with white color instead of blurred bars
+        canvas.drawColor(android.graphics.Color.WHITE)
+
+        val prefs = PreferencesManager(context)
+
+        // Retrieve relative percentage coordinate values of the single screen area bounding box
+        val leftPct = prefs.customRectLeft
+        val topPct = prefs.customRectTop
+        val rightPct = prefs.customRectRight
+        val bottomPct = prefs.customRectBottom
+
+
+        // Compute positioning using layout calculator
+        val layout = WallpaperLayoutCalculator.calculateFitPosition(
+            imageWidth = bitmap.width,
+            imageHeight = bitmap.height,
+            screenWidth = screenWidth,
+            screenHeight = screenHeight,
+            leftPct = leftPct,
+            topPct = topPct,
+            rightPct = rightPct,
+            bottomPct = bottomPct
+        )
+
+        val srcRect = Rect(0, 0, bitmap.width, bitmap.height)
+        val destRect = android.graphics.RectF(
+            layout.drawX,
+            layout.drawY,
+            layout.drawX + layout.drawWidth,
+            layout.drawY + layout.drawHeight
+        )
+
+        val paint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            isFilterBitmap = true
+        }
+
+        canvas.drawBitmap(bitmap, srcRect, destRect, paint)
+
+        return result
     }
 }

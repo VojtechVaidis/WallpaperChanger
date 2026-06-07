@@ -10,6 +10,7 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.example.wallpaperchanger.ui.main.MainScreen
 import com.example.wallpaperchanger.ui.photopicker.PhotoPickerScreen
+import com.example.wallpaperchanger.ui.position.CustomPositionConfigScreen
 
 @Composable
 fun MainNavigation() {
@@ -25,6 +26,9 @@ fun MainNavigation() {
                         onNavigateToPhotoPicker = { bucketId, albumName ->
                             backStack.add(PhotoPicker)
                         },
+                        onNavigateToCustomPosition = {
+                            backStack.add(CustomPositionConfig)
+                        },
                         modifier = Modifier.safeDrawingPadding()
                     )
                 }
@@ -36,6 +40,12 @@ fun MainNavigation() {
                         onDone = { backStack.removeLastOrNull() }
                     )
                 }
+                entry<CustomPositionConfig> {
+                    CustomPositionConfigScreen(
+                        onDone = { backStack.removeLastOrNull() }
+                    )
+                }
             },
     )
 }
+

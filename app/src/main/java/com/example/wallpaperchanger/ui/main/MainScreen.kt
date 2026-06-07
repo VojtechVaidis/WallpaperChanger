@@ -48,6 +48,7 @@ import com.example.wallpaperchanger.theme.*
 @Composable
 fun MainScreen(
     onNavigateToPhotoPicker: (Long, String) -> Unit,
+    onNavigateToCustomPosition: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -60,18 +61,7 @@ fun MainScreen(
         mutableStateOf(!pm.isIgnoringBatteryOptimizations(context.packageName))
     }
 
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
-                isBatteryOptimized = !pm.isIgnoringBatteryOptimizations(context.packageName)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
+
 
     var hasPermission by remember {
         mutableStateOf(
@@ -102,6 +92,25 @@ fun MainScreen(
     var showTargetPicker by remember { mutableStateOf(false) }
     var showScalingPicker by remember { mutableStateOf(false) }
 
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+                isBatteryOptimized = !pm.isIgnoringBatteryOptimizations(context.packageName)
+                // Sync Compose UI state with latest preferences on resume (e.g. from share sheet)
+                selectedAlbumName = prefs.albumName
+                selectedBucketId = prefs.albumBucketId
+                selectionMode = prefs.selectionMode
+                selectedPhotoCount = prefs.selectedPhotoUris.size
+                serviceEnabled = prefs.serviceEnabled
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -120,7 +129,17 @@ fun MainScreen(
     }
 
     val cloudPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickMultipleVisualMedia(100)
+        contract = ActivityResultContracts.PickMultipleVisualMedia(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                try {
+                    android.provider.MediaStore.getPickImagesMaxLimit()
+                } catch (e: Exception) {
+                    1000
+                }
+            } else {
+                1000
+            }
+        )
     ) { uris ->
         if (uris.isNotEmpty()) {
             val persistedUris = mutableListOf<String>()
@@ -331,6 +350,9 @@ fun MainScreen(
                     scalingMode = mode
                     prefs.scalingMode = mode
                     showScalingPicker = false
+                    if (mode == PreferencesManager.SCALING_CUSTOM) {
+                        onNavigateToCustomPosition()
+                    }
                 },
                 onDismiss = { showScalingPicker = false }
             )
@@ -654,6 +676,7 @@ private fun WallpaperScalingCard(
     val scalingLabel = when (scalingMode) {
         PreferencesManager.SCALING_FILL -> "Fill Screen (Crop)"
         PreferencesManager.SCALING_FIT -> "Fit Screen (Blurred background)"
+        PreferencesManager.SCALING_CUSTOM -> "Custom Position (White background)"
         else -> "Fill Screen (Crop)"
     }
 
@@ -1182,6 +1205,7 @@ private fun WallpaperScalingSheet(
             val modes = listOf(
                 Triple(PreferencesManager.SCALING_FILL, "Fill Screen (Crop)", "Crops image to fill entire screen"),
                 Triple(PreferencesManager.SCALING_FIT, "Fit Screen (Blurred background)", "Fits full image with blurred background bars"),
+                Triple(PreferencesManager.SCALING_CUSTOM, "Custom Position (White background)", "Scale/position inside custom frames with solid white margins"),
             )
 
             modes.forEach { (mode, label, desc) ->

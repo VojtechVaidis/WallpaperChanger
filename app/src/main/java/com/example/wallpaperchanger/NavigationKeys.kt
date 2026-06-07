@@ -5,3 +5,5 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object Main : NavKey
 @Serializable data object PhotoPicker : NavKey
+@Serializable data object CustomPositionConfig : NavKey
+

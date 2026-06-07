@@ -25,6 +25,12 @@ class PreferencesManager(context: Context) {
         private const val KEY_LAST_CHANGED_URI = "last_changed_uri"
         private const val KEY_SCALING_MODE = "scaling_mode"
 
+        private const val KEY_CUSTOM_RECT_LEFT = "custom_rect_left"
+        private const val KEY_CUSTOM_RECT_TOP = "custom_rect_top"
+        private const val KEY_CUSTOM_RECT_RIGHT = "custom_rect_right"
+        private const val KEY_CUSTOM_RECT_BOTTOM = "custom_rect_bottom"
+
+
         const val TARGET_HOME = 0
         const val TARGET_LOCK = 1
         const val TARGET_BOTH = 2
@@ -34,6 +40,7 @@ class PreferencesManager(context: Context) {
 
         const val SCALING_FILL = 0
         const val SCALING_FIT = 1
+        const val SCALING_CUSTOM = 2
 
         const val BUCKET_ID_GOOGLE_PHOTOS = -2L
     }
@@ -76,6 +83,24 @@ class PreferencesManager(context: Context) {
     var scalingMode: Int
         get() = prefs.getInt(KEY_SCALING_MODE, SCALING_FILL)
         set(value) = prefs.edit().putInt(KEY_SCALING_MODE, value).apply()
+
+    var customRectLeft: Float
+        get() = prefs.getFloat(KEY_CUSTOM_RECT_LEFT, 0.1f)
+        set(value) = prefs.edit().putFloat(KEY_CUSTOM_RECT_LEFT, value).apply()
+
+    var customRectTop: Float
+        get() = prefs.getFloat(KEY_CUSTOM_RECT_TOP, 0.1f)
+        set(value) = prefs.edit().putFloat(KEY_CUSTOM_RECT_TOP, value).apply()
+
+    var customRectRight: Float
+        get() = prefs.getFloat(KEY_CUSTOM_RECT_RIGHT, 0.9f)
+        set(value) = prefs.edit().putFloat(KEY_CUSTOM_RECT_RIGHT, value).apply()
+
+    var customRectBottom: Float
+        get() = prefs.getFloat(KEY_CUSTOM_RECT_BOTTOM, 0.9f)
+        set(value) = prefs.edit().putFloat(KEY_CUSTOM_RECT_BOTTOM, value).apply()
+
+
 
     fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
         prefs.registerOnSharedPreferenceChangeListener(listener)

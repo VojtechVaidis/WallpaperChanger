@@ -160,4 +160,63 @@ class AlbumRepository(private val context: Context) {
 
         return images
     }
+
+    /**
+     * Retrieves one landscape photo URI and one portrait photo URI from the specified album bucket.
+     * Used to populate correct orientation previews in the positioning configurator.
+     *
+     * Why: The user wants to see actual images from their album matching the crop step (horizontal vs vertical photo).
+     */
+    fun getPreviewImages(bucketId: Long): Pair<Uri?, Uri?> {
+        var landscapeUri: Uri? = null
+        var portraitUri: Uri? = null
+
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.WIDTH,
+            MediaStore.Images.Media.HEIGHT
+        )
+        val selection = "${MediaStore.Images.Media.BUCKET_ID} = ?"
+        val selectionArgs = arrayOf(bucketId.toString())
+        val sortOrder = "${MediaStore.Images.Media.DATE_MODIFIED} DESC"
+
+        try {
+            contentResolver.query(
+                imageCollection,
+                projection,
+                selection,
+                selectionArgs,
+                sortOrder
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val widthColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
+                val heightColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
+
+                while (cursor.moveToNext() && (landscapeUri == null || portraitUri == null)) {
+                    val id = cursor.getLong(idColumn)
+                    val width = cursor.getInt(widthColumn)
+                    val height = cursor.getInt(heightColumn)
+                    val uri = ContentUris.withAppendedId(
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        id
+                    )
+
+                    if (width > height && landscapeUri == null) {
+                        landscapeUri = uri
+                    } else if (height >= width && portraitUri == null) {
+                        portraitUri = uri
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AlbumRepository", "Error querying preview images", e)
+        }
+
+        // Fallbacks if one orientation is completely missing from the album
+        if (landscapeUri == null && portraitUri != null) landscapeUri = portraitUri
+        if (portraitUri == null && landscapeUri != null) portraitUri = landscapeUri
+
+        return Pair(landscapeUri, portraitUri)
+    }
 }
+
